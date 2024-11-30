@@ -11,9 +11,10 @@ from bs4 import BeautifulSoup
 import time
 
 def get_driver(options):
+    
     return webdriver.Chrome(
         service=Service(
-            ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+            ChromeDriverManager().install()
         ),
         options=options,
     )
@@ -26,7 +27,7 @@ def scrape_urls(base_url, is_streamlit=False):
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        driver = get_driver(options=options)
+        driver = get_driver(options=options, )
     else:
         driver = webdriver.Chrome()
     driver.get(base_url)
