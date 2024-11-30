@@ -22,8 +22,10 @@ def scrape_urls(base_url, is_streamlit=False):
     debug = []
     if is_streamlit:
         options = Options()
-        options.add_argument("--disable-gpu")
         options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         driver = get_driver(options=options)
     else:
         driver = webdriver.Chrome()
