@@ -35,6 +35,7 @@ def scrape_urls(base_url, is_streamlit=False):
     debug.append(f"Opening {base_url} using {driver.name}")
     if 'pagination' not in driver.page_source:
         debug.append("Pagination element not found")
+        debug.append(driver.page_source)
         return all_links, debug
 
     try:
