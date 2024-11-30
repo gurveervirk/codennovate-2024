@@ -11,8 +11,6 @@ from bs4 import BeautifulSoup
 import time
 
 def get_driver(options, debug):
-    debug.append(f"Using ChromeDriverManager to install {ChromeType.CHROMIUM}")
-    debug.append(f"ChromeOptions: {options.arguments}")
     return webdriver.Chrome(
         service=Service(
             ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
@@ -35,6 +33,9 @@ def scrape_urls(base_url, is_streamlit=False):
     all_links = []
     current_page = 1
     debug.append(f"Opening {base_url} using {driver.name}")
+    if 'pagination' not in driver.page_source:
+        debug.append("Pagination element not found")
+        return all_links, debug
 
     try:
         WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
