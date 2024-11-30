@@ -19,6 +19,7 @@ def get_driver(options):
     )
 
 def scrape_urls(base_url, is_streamlit=False):
+    debug = []
     if is_streamlit:
         options = Options()
         options.add_argument("--disable-gpu")
@@ -29,7 +30,7 @@ def scrape_urls(base_url, is_streamlit=False):
     driver.get(base_url)
     all_links = []
     current_page = 1
-    print(f"Scraping {base_url}... with {driver.current_url}")
+    debug.append(f"Opening {base_url} using {driver.name}")
 
     try:
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
@@ -44,24 +45,24 @@ def scrape_urls(base_url, is_streamlit=False):
             return []
 
         page_links = get_page_links()
-        print(f"Found {len(page_links)} page links")
+        debug.append(f"Found {len(page_links)} page links on page {current_page}")
         max_pages = int([link for link in page_links if link.text.strip() not in ['Next', 'Prev', '...']][-1].text)
         
         while current_page <= max_pages:
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'table')))
             soup = BeautifulSoup(driver.page_source, 'html.parser')
             all_links.extend([link['href'] for link in soup.find_all('a', href=True) if link['href'].endswith('.pdf')])
-            print(f"Found new {len(all_links)} PDF links on page {current_page}")
+            debug.append(f"Found {len(all_links)} PDF links on page {current_page}")
             
             if current_page == max_pages:
-                print(f"Reached last page {current_page}")
+                debug.append(f"Reached last page {current_page}")
                 break
             
             page_links = get_page_links()
             next_buttons = [link for link in page_links if link.text == 'Next' and 'disabled' not in link.get_attribute('class')]
             
             if not next_buttons:
-                print(f"Could not find next button on page {current_page}")
+                debug.append(f"Next button not found on page {current_page}")
                 break
             
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -72,9 +73,9 @@ def scrape_urls(base_url, is_streamlit=False):
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
     
     except (TimeoutException, NoSuchElementException) as e:
-        print(f"An error occurred: {e}")
+        debug.append(f"Error: {e}")
     
     finally:
         driver.quit()
     
-    return all_links
+    return all_links, debug

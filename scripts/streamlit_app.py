@@ -77,7 +77,8 @@ if st.button("Process Links"):
             pdf_links = []
             for link in links:
                 try:
-                    extracted_links = utils.scrape_urls(link, is_streamlit=True)
+                    extracted_links, debug = utils.scrape_urls(link, is_streamlit=True)
+                    st.write('\n'.join(debug))
                     pdf_links.extend(extracted_links)
                 except Exception as e:
                     st.error(f"Error processing {link}: {e}")
