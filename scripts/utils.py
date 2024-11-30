@@ -24,7 +24,7 @@ def scrape_urls(base_url, is_streamlit=False):
     debug = []
     if is_streamlit:
         options = Options()
-        options.add_argument("--headless=new")
+        options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
@@ -38,7 +38,7 @@ def scrape_urls(base_url, is_streamlit=False):
 
     try:
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
-        
+        debug.append(f"Found pagination element on page {current_page}")
         def get_page_links(retries=3):
             for _ in range(retries):
                 try:
