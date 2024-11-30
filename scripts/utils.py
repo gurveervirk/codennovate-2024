@@ -37,7 +37,7 @@ def scrape_urls(base_url, is_streamlit=False):
     debug.append(f"Opening {base_url} using {driver.name}")
 
     try:
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
+        WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CLASS_NAME, 'pagination')))
         debug.append(f"Found pagination element on page {current_page}")
         def get_page_links(retries=3):
             for _ in range(retries):
