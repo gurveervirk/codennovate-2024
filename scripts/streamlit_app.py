@@ -1,12 +1,14 @@
 import streamlit as st
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings
+from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.embeddings.gemini import GeminiEmbedding
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 from llama_index.llms.gemini import Gemini
 from streamlit_cookies_controller import CookieController
 import os
 import utils  # Importing the utilities script for link processing
-import tempfile
+import requests
+import shutil  # For moving files from 'new' to 'data'
 
 # Initialize Cookie Controller
 controller = CookieController()
@@ -63,11 +65,19 @@ with st.sidebar:
         controller.remove("neo4j_password")
         st.success("Credentials cleared from cookies.")
 
-# Step 2: Input Document Links
+# Step 2: Define paths
+base_dir = "data"  # Base directory for data storage
+new_dir = os.path.join(base_dir, "new")  # 'new' folder inside 'data'
+
+# Ensure the 'new' directory exists
+if not os.path.exists(new_dir):
+    os.makedirs(new_dir)
+
+# Step 3: Input Document Links
 st.header("Upload and Process Documents")
 uploaded_links = st.text_area("Enter URLs (one per line):")
-download_dir = tempfile.mkdtemp()
-
+if "extracted_data" not in st.session_state:
+    st.session_state.extracted_data = {}
 if st.button("Process Links"):
     if not api_key:
         st.error("Please provide your API Key in the sidebar!")
@@ -77,45 +87,76 @@ if st.button("Process Links"):
             pdf_links = []
             for link in links:
                 try:
-                    extracted_links, debug = utils.scrape_urls(link, is_streamlit=True)
-                    st.write('\n'.join(debug))
-                    pdf_links.extend(extracted_links)
+                    st.session_state.extracted_data.update(utils.scrape_urls(link))
+                    pdf_links.extend([row['attachment'] for row in st.session_state.extracted_data.values()])
                 except Exception as e:
                     st.error(f"Error processing {link}: {e}")
             
-            for pdf_url in pdf_links:
+            # Initialize progress bar
+            overall_progress = st.progress(0)
+            total_pdfs = len(pdf_links)
+
+            for index, pdf_url in enumerate(pdf_links):
                 pdf_name = os.path.basename(pdf_url)
-                pdf_path = os.path.join(download_dir, pdf_name)
-                os.system(f"wget -q {pdf_url} -O {pdf_path}")
+                pdf_path = os.path.join(new_dir, pdf_name)
+                try:
+                    # Download the PDF using requests
+                    response = requests.get(pdf_url, stream=True)
+                    response.raise_for_status()  # Raise an error for HTTP issues
+                    with open(pdf_path, "wb") as pdf_file:
+                        for chunk in response.iter_content(chunk_size=1024):
+                            if chunk:  # Filter out keep-alive chunks
+                                pdf_file.write(chunk)
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Error downloading {pdf_url}: {e}")
+                
+                # Update overall progress bar
+                overall_progress.progress((index + 1) / total_pdfs)
             
             st.success(f"Downloaded {len(pdf_links)} PDFs!")
 
-# Step 3: Load PDFs into Neo4j Vector Store
+# Step 4: Index Documents
 if st.button("Index Documents"):
     if not all([api_key, neo4j_url, neo4j_username, neo4j_password]):
         st.error("Please set all credentials in the sidebar.")
     else:
-        try:
-            # Configure embeddings and Neo4j store
-            Settings.embed_model = GeminiEmbedding(api_key=api_key, model_name="models/text-embedding-004")
-            Settings.llm = Gemini(api_key=api_key, model="models/gemini-1.5-flash")
-            neo4j_vector = Neo4jVectorStore(
-                username=neo4j_username,
-                password=neo4j_password,
-                url=neo4j_url,
-                embed_dim=embed_dim,
-                hybrid_search=True
-            )
+        with st.spinner("Indexing documents... This may take a few minutes..."):
+            try:
+                # Configure embeddings and Neo4j store
+                Settings.embed_model = GeminiEmbedding(api_key=api_key, model_name="models/text-embedding-004")
+                Settings.llm = Gemini(api_key=api_key, model="models/gemini-1.5-flash")
+                neo4j_vector = Neo4jVectorStore(
+                    neo4j_username,
+                    neo4j_password,
+                    neo4j_url,
+                    embed_dim,
+                    hybrid_search=True
+                )
 
-            # Load documents
-            documents = SimpleDirectoryReader(download_dir).load_data()
-            storage_context = StorageContext.from_defaults(vector_store=neo4j_vector)
-            index = VectorStoreIndex.from_documents(documents, storage_context=storage_context, show_progress=True)
-            st.success("Documents indexed successfully!")
-        except Exception as e:
-            st.error(f"Error indexing documents: {e}")
+                def get_metadata(file_path):
+                    return st.session_state.extracted_data.get(os.path.basename(file_path), {})
+                # Load documents from the 'new' directory (where PDFs were downloaded)
+                
+                documents = SimpleDirectoryReader(input_dir=new_dir,file_metadata=get_metadata).load_data()
+                storage_context = StorageContext.from_defaults(vector_store=neo4j_vector)
+                index = VectorStoreIndex.from_documents(documents, storage_context=storage_context, show_progress=True)
+                st.success("Documents indexed successfully!")
 
-# Step 4: Chat Engine
+                # After indexing, move the files from 'new' to the 'data' directory and clear 'new'
+                for file_name in os.listdir(new_dir):
+                    old_path = os.path.join(new_dir, file_name)
+                    new_path = os.path.join(base_dir, file_name)
+                    shutil.move(old_path, new_path)
+
+                # Empty 'new' folder after moving files
+                for file_name in os.listdir(new_dir):
+                    file_path = os.path.join(new_dir, file_name)
+                    os.remove(file_path)
+
+            except Exception as e:
+                st.error(f"Error indexing documents: {e}")
+
+# Step 5: Chat Engine
 st.header("Chat with Your Documents")
 query = st.text_input("Ask a question about the documents:")
 
@@ -129,7 +170,7 @@ if st.button("Chat"):
             chat_engine = index.as_chat_engine(
                 chat_mode="context",
                 memory=memory,
-                system_prompt=(
+                system_prompt=( 
                     "You are a chatbot, able to have normal interactions, as well as use "
                     "the context provided to return complete, detailed answers."
                 )
